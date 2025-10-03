@@ -3,7 +3,7 @@ from flask import Flask, render_template, session, redirect, url_for
 from flask_bootstrap import Bootstrap
 from flask_moment import Moment
 from flask_wtf import FlaskForm
-from wtforms import StringField, SubmitField
+from wtforms import StringField, SubmitField, SelectField
 from wtforms.validators import DataRequired
 from flask_sqlalchemy import SQLAlchemy
 from flask_migrate import Migrate
@@ -14,7 +14,7 @@ app = Flask(__name__)
 app.config['SECRET_KEY'] = 'hard to guess string'
 app.config['SQLALCHEMY_DATABASE_URI'] =\
     'sqlite:///' + os.path.join(basedir, 'data.sqlite')
-app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+app.config['SQLALCHEMY_TRACK_MODifications'] = False
 
 bootstrap = Bootstrap(app)
 moment = Moment(app)
@@ -44,6 +44,7 @@ class User(db.Model):
 
 class NameForm(FlaskForm):
     name = StringField('What is your name?', validators=[DataRequired()])
+    role = SelectField('Role?:', coerce=int)
     submit = SubmitField('Submit')
 
 
@@ -65,15 +66,14 @@ def internal_server_error(e):
 @app.route('/', methods=['GET', 'POST'])
 def index():
     form = NameForm()
+    form.role.choices = [(role.id, role.name)
+                         for role in Role.query.order_by(Role.name).all()]
+
     if form.validate_on_submit():
         user = User.query.filter_by(username=form.name.data).first()
         if user is None:
-            user_role = Role.query.filter_by(name='User').first()
-            if not user_role:
-                user_role = Role(name='User')
-                db.session.add(user_role)
-                db.session.commit()
-            user = User(username=form.name.data, role=user_role)
+            role = Role.query.get(form.role.data)
+            user = User(username=form.name.data, role=role)
             db.session.add(user)
             db.session.commit()
             session['known'] = False
@@ -82,12 +82,16 @@ def index():
         session['name'] = form.name.data
         return redirect(url_for('index'))
 
-    users = User.query.all()
+    users_list = User.query.join(Role).order_by(Role.name, User.username).all()
+    user_count = User.query.count()
+    roles_list = Role.query.order_by(Role.name).all()
+    role_count = Role.query.count()
 
-    return render_template(
-        'index.html',
-        form=form,
-        name=session.get('name'),
-        known=session.get('known', False),
-        users=users
-    )
+    return render_template('index.html',
+                           form=form,
+                           name=session.get('name'),
+                           known=session.get('known', False),
+                           users=users_list,
+                           user_count=user_count,
+                           roles=roles_list,
+                           role_count=role_count)
